@@ -1,0 +1,84 @@
+# Use root/example as user/password credentials
+version: '3.7'
+
+services:
+  db:
+    image: mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE:      grafanadb
+      MYSQL_USER:          grafana
+      MYSQL_PASSWORD:      password
+    ports:
+    - 3306:3306
+    cap_add:
+    - CAP_SYS_NICE
+
+  prometheus:
+    image: prom/prometheus
+    restart: always
+    ports:
+    - 9090:9090
+    depends_on:
+    - db
+    volumes:
+    - type:   bind
+      source: ./prometheus.yml
+      target: /etc/prometheus/prometheus.yml
+
+  mysql_exporter:
+    image: prom/mysqld-exporter
+    restart: always
+    command:
+    - --collect.info_schema.processlist
+    - --collect.info_schema.tables
+    - --collect.info_schema.tablestats
+    - --collect.perf_schema.file_events
+    - --collect.perf_schema.file_instances
+    - --collect.perf_schema.eventswaits
+    - --collect.perf_schema.tableiowaits
+    - --collect.perf_schema.tablelocks
+    - --collect.engine_innodb_status
+
+    environment:
+      DATA_SOURCE_NAME: root:password@tcp(db:3306)/
+    depends_on:
+    - db
+    ports:
+    - 9104:9104
+
+  grafana:
+    image: grafana/grafana
+    entrypoint:
+    - /bin/bash
+    - -c
+    # give some time for mysql to finish init before starting grafana
+    - |
+      sleep 3 &&
+      grafana-server \
+        --homepath=/usr/share/grafana \
+        --config=/etc/grafana/grafana.ini \
+        --packaging docker \
+        cfg:default.paths.data=/var/lib/grafana \
+        cfg:default.paths.logs=/var/log/grafana \
+        cfg:default.paths.plugins=/var/lib/grafana/plugins \
+        cfg:default.paths.provisioning=/etc/grafana/provisioning
+    command: []
+    restart: always
+    ports:
+    - 3000:3000
+    depends_on:
+    - prometheus
+    - db
+    volumes:
+    - type:   bind
+      source: ./dashboards
+      target: /etc/grafana/dashboards
+    - type:   bind
+      source: ./provisioning
+      target: /etc/grafana/provisioning
+    - type:   bind
+      source: ./grafana.ini
+      target: /etc/grafana/grafana.ini
